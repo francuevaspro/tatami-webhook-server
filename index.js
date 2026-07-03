@@ -232,8 +232,9 @@ app.post('/admin/create-academy', async (req, res) => {
     }
 
     const studentLink = `https://marvelous-donut-8bd463.netlify.app?academy_id=${academyId}`;
+    const adminLink   = `https://marvelous-donut-8bd463.netlify.app`;
     console.log(`✅ Academia creada: ${academyName} (${academyId})`);
-    return res.json({ success: true, academyId, studentLink });
+    return res.json({ success: true, academyId, studentLink, adminLink });
 
   } catch (err) {
     console.error('Error:', err);
