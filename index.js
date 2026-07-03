@@ -3,12 +3,13 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-const GHL_API_KEY     = process.env.GHL_API_KEY;
-const GHL_LOCATION_ID = process.env.GHL_LOCATION_ID;
-const SUPABASE_URL    = process.env.SUPABASE_URL;
-const SUPABASE_KEY    = process.env.SUPABASE_SERVICE_KEY;
-const ACADEMY_ID      = process.env.ACADEMY_ID;
-const PORT            = process.env.PORT || 3001;
+const GHL_API_KEY        = process.env.GHL_API_KEY;
+const GHL_LOCATION_ID    = process.env.GHL_LOCATION_ID;
+const SUPABASE_URL       = process.env.SUPABASE_URL;
+const SUPABASE_KEY       = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY;
+const ACADEMY_ID         = process.env.ACADEMY_ID;
+const SUPERADMIN_TOKEN   = process.env.SUPERADMIN_TOKEN;
+const PORT               = process.env.PORT || 3001;
 
 // ── POST /webhook/student-registered ─────────────────
 // Llamado desde Supabase Database Webhook cuando se inserta un nuevo perfil
@@ -136,6 +137,96 @@ app.post('/webhook/ghl-contact-converted', async (req, res) => {
 
     console.log(`✅ Usuario creado en app desde GHL: ${email} (${name})`);
     return res.json({ success: true, user_id: userId });
+
+  } catch (err) {
+    console.error('Error:', err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /admin/create-academy ────────────────────────
+// Crea academia + usuario admin en una sola llamada
+app.post('/admin/create-academy', async (req, res) => {
+  // Protección básica con token
+  const token = req.headers['x-admin-token'];
+  if (!SUPERADMIN_TOKEN || token !== SUPERADMIN_TOKEN) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  const { academyName, ownerName, ownerEmail, ownerPassword } = req.body;
+  if (!academyName || !ownerName || !ownerEmail || !ownerPassword) {
+    return res.status(400).json({ error: 'Faltan campos: academyName, ownerName, ownerEmail, ownerPassword' });
+  }
+
+  try {
+    // 1. Crear academia
+    const academyRes = await fetch(`${SUPABASE_URL}/rest/v1/academies`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify({ name: academyName }),
+    });
+    const academyData = await academyRes.json();
+    if (!academyRes.ok) {
+      console.error('Error creando academia:', academyData);
+      return res.status(500).json({ error: 'Error creando academia', detail: academyData });
+    }
+    const academyId = academyData[0].id;
+
+    // 2. Crear usuario admin en Supabase Auth
+    const authRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email: ownerEmail,
+        password: ownerPassword,
+        email_confirm: true,
+        user_metadata: { name: ownerName, academy_id: academyId, role: 'admin' },
+      }),
+    });
+    const authData = await authRes.json();
+    if (!authRes.ok) {
+      console.error('Error creando usuario:', authData);
+      return res.status(500).json({ error: 'Error creando usuario', detail: authData });
+    }
+    const userId = authData.id;
+
+    // 3. Crear perfil del admin
+    const profileRes = await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_KEY}`,
+        'apikey': SUPABASE_KEY,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        id: userId,
+        name: ownerName,
+        email: ownerEmail,
+        academy_id: academyId,
+        role: 'admin',
+        belt: 'black',
+        stripes: 0,
+      }),
+    });
+    if (!profileRes.ok) {
+      const profileErr = await profileRes.json();
+      console.error('Error creando perfil:', profileErr);
+      return res.status(500).json({ error: 'Error creando perfil', detail: profileErr });
+    }
+
+    const studentLink = `https://marvelous-donut-8bd463.netlify.app?academy_id=${academyId}`;
+    console.log(`✅ Academia creada: ${academyName} (${academyId})`);
+    return res.json({ success: true, academyId, studentLink });
 
   } catch (err) {
     console.error('Error:', err);
