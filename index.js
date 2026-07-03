@@ -2,6 +2,13 @@ require('dotenv').config();
 const express = require('express');
 const app = express();
 app.use(express.json());
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-admin-token');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
 
 const GHL_API_KEY        = process.env.GHL_API_KEY;
 const GHL_LOCATION_ID    = process.env.GHL_LOCATION_ID;
